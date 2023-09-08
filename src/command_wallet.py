@@ -1,6 +1,34 @@
 import tkinter as tk
+import datetime
+
 from src.runner import run_command
 from src.gui_components import LabelInput
+
+
+class ControlFrame(tk.Frame):
+
+    def __init__(self, parent, app_name_label, on_run_callback, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+
+        self.columnconfigure(0, weight=1)
+
+        tk.Label(self, text=app_name_label,
+                 font=('TkDefaultFont', 15)).grid()
+
+        self.command_input = tk.StringVar()
+        self.command_input.set('docker run --rm hello-world')
+        LabelInput(self, 'Command', tk.Entry,
+                   {'bg': 'white', 'textvariable': self.command_input}
+                   ).grid(sticky=tk.E + tk.W)
+
+        subframe_buttons = tk.Frame(self)
+        subframe_buttons.grid(sticky=tk.E + tk.W)
+        run_btn = tk.Button(subframe_buttons, text='Run',
+                            command=on_run_callback)
+        run_btn.pack(side=tk.LEFT)
+
+    def get_input_command(self):
+        return self.command_input.get()
 
 
 class CommandWalletApplication(tk.Tk):
@@ -15,23 +43,8 @@ class CommandWalletApplication(tk.Tk):
         self.rowconfigure(0, weight=0)
         self.rowconfigure(1, weight=1)
 
-        frame_top = tk.Frame(self)
-        frame_top.columnconfigure(0, weight=1)
-        frame_top.grid(row=0, column=0, sticky='WENS', padx=10, pady=20)
-
-        tk.Label(frame_top, text=self.APP_NAME,
-                 font=('TkDefaultFont', 15)).grid()
-
-        command_input = tk.StringVar()
-        command_input.set('docker run --rm hello-world')
-        LabelInput(frame_top, 'Command', tk.Entry,
-                   {'bg': 'white', 'textvariable': command_input}
-                   ).grid(sticky=tk.E + tk.W)
-
-        subframe_buttons = tk.Frame(frame_top)
-        subframe_buttons.grid(sticky=tk.E + tk.W)
-        run_btn = tk.Button(subframe_buttons, text='Run')
-        run_btn.grid(sticky=tk.E)
+        self.frame_top = ControlFrame(self, self.APP_NAME, self.on_run)
+        self.frame_top.grid(row=0, column=0, sticky='WENS', padx=10, pady=20)
 
         frame_console = tk.LabelFrame(self, text='Log')
         frame_console.grid(row=1, column=0, sticky='WENS', padx=10, pady=10)
@@ -39,40 +52,46 @@ class CommandWalletApplication(tk.Tk):
         frame_console.columnconfigure(1, weight=0)
         frame_console.rowconfigure(1, weight=1)
 
-        console_log = tk.Text(frame_console, bg='white')
+        self.console_log = tk.Text(frame_console, bg='white')
         console_log_scroll = tk.Scrollbar(
-            frame_console, command=console_log.yview)
-        console_log.configure(yscrollcommand=console_log_scroll.set)
-        console_log.grid(row=1, column=0, sticky='WENS')
+            frame_console, command=self.console_log.yview)
+        self.console_log.configure(yscrollcommand=console_log_scroll.set)
+        self.console_log.grid(row=1, column=0, sticky='WENS')
         console_log_scroll.grid(row=1, column=1, sticky='NS')
 
-        def process_command_output(process):
-            while True:
-                output = process.stdout.readline()
-                error = process.stderr.readline()
+    def on_run(self):
+        cmd = self.frame_top.get_input_command()
 
-                if not output and not error:
-                    break
+        self.log_message('Started: {}'.format(cmd))
 
-                if output:
-                    console_log.insert(tk.END, '[stdout] {}'.format(output))
-                if error:
-                    console_log.insert(tk.END, '[stderr] {}'.format(error))
-                console_log.yview_moveto(1)
+        run_command(cmd, self.process_command_output)
 
-            process.poll()
-            # TODO: insert timestamp in log messages
-            console_log.insert(
-                tk.END, '\n[command-wallet] Finished: {}\n'.format(process.returncode))
-            console_log.yview_moveto(1)
+    def process_command_output(self, process):
+        while True:
+            output = process.stdout.readline()
+            error = process.stderr.readline()
 
-        def on_run():
-            console_log.insert(
-                tk.END, '\n[command-wallet] Started: {}\n\n'.format(command_input.get()))
+            if not output and not error:
+                break
 
-            run_command(command_input.get(), process_command_output)
+            if output:
+                self.append_log_console('[stdout] {}'.format(output))
+            if error:
+                self.append_log_console('[stderr] {}'.format(error))
 
-        run_btn.configure(command=on_run)
+        process.poll()
+        self.log_message('Finished: {}'.format(process.returncode))
+
+    def log_message(self, message):
+        self.append_log_console(
+            '\n[command-wallet] ({date}) {message}\n\n'.format(date=self.get_timestamp(), message=message))
+
+    def append_log_console(self, message):
+        self.console_log.insert(tk.END, message)
+        self.console_log.yview_moveto(1)
+
+    def get_timestamp(self):
+        return str(datetime.datetime.now())
 
 
 if __name__ == '__main__':
